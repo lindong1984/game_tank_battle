@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tank Battle Game — Tests</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: monospace;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      padding: 1.5rem;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 1rem;
+      color: #ffffff;
+    }
+
+    #summary {
+      font-size: 1rem;
+      margin-bottom: 1.5rem;
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      background: #2a2a2a;
+    }
+
+    #summary.all-pass { border-left: 4px solid #44cc44; color: #44cc44; }
+    #summary.has-fail  { border-left: 4px solid #ff4444; color: #ff4444; }
+    #summary.running   { border-left: 4px solid #aaaaaa; color: #aaaaaa; }
+
+    #results { list-style: none; }
+
+    #results li {
+      padding: 0.4rem 0.75rem;
+      margin-bottom: 0.3rem;
+      border-radius: 3px;
+      font-size: 0.9rem;
+    }
+
+    #results li.pass { background: #1a3a1a; color: #66dd66; }
+    #results li.fail { background: #3a1a1a; color: #ff6666; }
+    #results li.error { background: #3a2a00; color: #ffcc44; }
+
+    .badge {
+      display: inline-block;
+      width: 4rem;
+      text-align: center;
+      font-weight: bold;
+      margin-right: 0.5rem;
+    }
+
+    .badge.pass  { color: #44cc44; }
+    .badge.fail  { color: #ff4444; }
+    .badge.error { color: #ffcc44; }
+
+    details { margin-top: 0.25rem; }
+    summary { cursor: pointer; color: #aaaaaa; font-size: 0.8rem; }
+    pre {
+      margin-top: 0.25rem;
+      padding: 0.5rem;
+      background: #111;
+      border-radius: 3px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-size: 0.78rem;
+      color: #ffaaaa;
+    }
+  </style>
+</head>
+<body>
+  <h1>Tank Battle Game — Test Suite</h1>
+  <div id="summary" class="running">Running tests…</div>
+  <ul id="results"></ul>
+
+  <!--
+    fast-check loaded via CDN (ESM build).
+    Minimum 100 iterations per property (configured in game.test.js).
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "fast-check": "https://cdn.jsdelivr.net/npm/fast-check/+esm"
+    }
+  }
+  </script>
+
+  <script type="module">
+    // ---------------------------------------------------------------------------
+    // Minimal DOM-based test runner
+    // ---------------------------------------------------------------------------
+
+    const resultsList = document.getElementById('results');
+    const summaryEl   = document.getElementById('summary');
+
+    let passed = 0;
+    let failed = 0;
+
+    /**
+     * Register a test case.
+     * @param {string} name  Human-readable test name
+     * @param {() => void | Promise<void>} fn  Test body; throw to fail
+     */
+    window.test = async function test(name, fn) {
+      const li = document.createElement('li');
+      try {
+        await fn();
+        passed++;
+        li.className = 'pass';
+        li.innerHTML = `<span class="badge pass">PASS</span>${escHtml(name)}`;
+      } catch (err) {
+        failed++;
+        li.className = 'fail';
+        const details = err && err.message ? err.message : String(err);
+        li.innerHTML =
+          `<span class="badge fail">FAIL</span>${escHtml(name)}` +
+          `<details><summary>details</summary><pre>${escHtml(details)}</pre></details>`;
+      }
+      resultsList.appendChild(li);
+      updateSummary();
+    };
+
+    /**
+     * Register a property-based test (wraps fast-check).
+     * @param {string} name
+     * @param {() => Promise<void>} fn  Should call fc.assert() internally
+     */
+    window.property = async function property(name, fn) {
+      return window.test(name, fn);
+    };
+
+    function updateSummary() {
+      const total = passed + failed;
+      summaryEl.textContent = `${total} test(s) run — ${passed} passed, ${failed} failed`;
+      summaryEl.className = failed > 0 ? 'has-fail' : 'all-pass';
+    }
+
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ---------------------------------------------------------------------------
+    // Load the test file (game.test.js) as a module.
+    // Tests register themselves via window.test / window.property above.
+    // ---------------------------------------------------------------------------
+    try {
+      await import('./game.test.js');
+    } catch (err) {
+      const li = document.createElement('li');
+      li.className = 'error';
+      li.innerHTML =
+        `<span class="badge error">ERR</span>Failed to load game.test.js` +
+        `<details><summary>details</summary><pre>${escHtml(String(err))}</pre></details>`;
+      resultsList.appendChild(li);
+      failed++;
+    }
+
+    // Final summary update after all tests have run.
+    if (passed + failed === 0) {
+      summaryEl.textContent = 'No tests found.';
+      summaryEl.className = 'running';
+    } else {
+      updateSummary();
+    }
+  </script>
+</body>
+</html>
