@@ -38,7 +38,7 @@ export class InputHandler {
     this.keys.add(e.key);
     // Prevent default browser behavior for game keys while playing
     if (state && state.phase === 'playing') {
-      const gameKeys = ['w', 'a', 's', 'd', 'W', 'A', 'S', 'D', 'ArrowLeft', 'ArrowRight', ' ', 'h', 'H'];
+      const gameKeys = ['w', 'a', 's', 'd', 'W', 'A', 'S', 'D', 'ArrowLeft', 'ArrowRight', ' ', 'h', 'H', 'q', 'Q'];
       if (gameKeys.includes(e.key)) {
         e.preventDefault();
       }
@@ -290,14 +290,14 @@ export function createPlayerTankHeavy() {
     y: 400,
     bodyAngle: 0,
     turretAngle: 0,
-    speed: 110,                // slower
-    reverseSpeed: 55,
+    speed: 64,                 // 80% of enemy standard tank (80)
+    reverseSpeed: 32,
     rotationRate: 1.571,       // ~90°/s
     turretRotationRate: 2.094, // ~120°/s
     health: 100,               // same health
     maxHealth: 100,
     fireCooldown: 0,
-    fireRate: 0.4,             // slightly faster fire rate
+    fireRate: 0.8,             // slower fire rate (dual guns compensate)
     width: 44,                 // bigger
     height: 44,
     isPlayer: true,
@@ -2508,6 +2508,16 @@ export function renderHUD(ctx, state) {
     ctx.fillText('✈ AIRSTRIKE [H]', barX + 4, nextTimerY + 9);
   }
 
+  // --- Back to menu hint (top-right) ---
+  const canvasW = ctx.canvas.width;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.fillRect(canvasW - 130, 10, 120, 24);
+  ctx.fillStyle = '#aaaaaa';
+  ctx.font = '12px monospace';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Q — Menu', canvasW - 18, 22);
+
   ctx.restore();
 }
 
@@ -2571,6 +2581,7 @@ export function renderInstructions(ctx) {
     '← / →         — Aim gun independently',
     'SPACE         — Fire',
     'H             — Call airstrike (when available)',
+    'Q             — Back to menu',
   ];
   controls.forEach((line, i) => {
     ctx.fillText(line, mapW / 2, 420 + i * 30);
@@ -3086,6 +3097,20 @@ let state = createGameState();
 const input = new InputHandler();
 input.attach();
 
+// Back button — clickable HTML button to go to previous screen
+const backBtn = document.getElementById('back-btn');
+if (backBtn) {
+  backBtn.addEventListener('click', () => {
+    if (state.phase !== 'instructions') {
+      state.phase = 'instructions';
+    }
+  });
+  // Show/hide based on phase
+  setInterval(() => {
+    backBtn.style.display = state.phase === 'instructions' ? 'none' : 'block';
+  }, 100);
+}
+
 /** @type {number|null} Timestamp of the previous frame (ms) */
 let lastTimestamp = null;
 
@@ -3119,6 +3144,13 @@ function gameLoop(timestamp) {
 
   // Clear the canvas.
   ctx.clearRect(0, 0, mapW, mapH);
+
+  // Q key — back to main menu from any screen (except instructions itself)
+  if ((input.isDown('q') || input.isDown('Q')) && state.phase !== 'instructions') {
+    state.phase = 'instructions';
+    input.keys.delete('q');
+    input.keys.delete('Q');
+  }
 
   // Dispatch update and render based on current game phase.
   switch (state.phase) {
