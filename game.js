@@ -290,14 +290,14 @@ export function createPlayerTankHeavy() {
     y: 400,
     bodyAngle: 0,
     turretAngle: 0,
-    speed: 64,                 // 80% of enemy standard tank (80)
-    reverseSpeed: 32,
+    speed: 51,                 // 80% of previous (64 * 0.8)
+    reverseSpeed: 26,
     rotationRate: 1.571,       // ~90°/s
     turretRotationRate: 2.094, // ~120°/s
-    health: 100,               // same health
-    maxHealth: 100,
+    health: 150,               // 150% of standard
+    maxHealth: 150,
     fireCooldown: 0,
-    fireRate: 0.8,             // slower fire rate (dual guns compensate)
+    fireRate: 1.0,             // 1 second between shots
     width: 44,                 // bigger
     height: 44,
     isPlayer: true,
@@ -535,6 +535,8 @@ export function createProjectile(tank) {
  */
 export function fireProjectile(state, tank) {
   if (tank.fireCooldown > 0) return;
+  const hasDoubleShot = tank.isPlayer && tank.doubleShotTimer > 0;
+
   if (tank.dualGun) {
     // Fire two projectiles offset to left and right of turret center
     const offset = tank.height * 0.25;
@@ -546,13 +548,24 @@ export function fireProjectile(state, tank) {
       proj.id = `proj_${Date.now()}_${Math.random()}`;
       state.projectiles.push(proj);
     }
-  } else if (tank.isPlayer && tank.doubleShotTimer > 0) {
+    // Double shot on dual gun: fire a second volley slightly behind
+    if (hasDoubleShot) {
+      for (const sign of [-1, 1]) {
+        const proj = createProjectile(tank);
+        proj.x += Math.cos(perpAngle) * offset * sign;
+        proj.y += Math.sin(perpAngle) * offset * sign;
+        proj.x -= Math.cos(tank.turretAngle) * 12;
+        proj.y -= Math.sin(tank.turretAngle) * 12;
+        proj.id = `proj_${Date.now()}_${Math.random()}`;
+        state.projectiles.push(proj);
+      }
+    }
+  } else if (hasDoubleShot) {
     // Double shot: two bullets in a line (one slightly behind the other)
     const proj1 = createProjectile(tank);
     state.projectiles.push(proj1);
     const proj2 = createProjectile(tank);
     proj2.id = `proj_${Date.now()}_${Math.random()}`;
-    // Offset the second bullet slightly behind
     proj2.x -= Math.cos(tank.turretAngle) * 12;
     proj2.y -= Math.sin(tank.turretAngle) * 12;
     state.projectiles.push(proj2);
@@ -1276,15 +1289,19 @@ export function resolveCollisions(state) {
   const allyTanks = state.allyTanks || [];
   const allTanks = player ? [player, ...state.enemyTanks, ...allyTanks] : [...state.enemyTanks, ...allyTanks];
   for (const tank of allTanks) {
-    // Rivers block tanks UNLESS the tank overlaps a bridge
-    for (const river of map.rivers) {
-      const tr = tankRect(tank);
-      // Check if tank bounding box overlaps any bridge on this river
-      const onBridge = map.bridges && map.bridges.some(b =>
-        tr.x < b.x + b.width && tr.x + tr.width > b.x &&
-        tr.y < b.y + b.height && tr.y + tr.height > b.y
-      );
-      if (!onBridge) pushTankOutOfRect(tank, river);
+    // Rivers: block tanks using river segments (above and below bridge)
+    for (let ri = 0; ri < map.rivers.length; ri++) {
+      const river = map.rivers[ri];
+      const bridge = map.bridges && map.bridges[ri];
+      if (bridge) {
+        // Split river into top segment (above bridge) and bottom segment (below bridge)
+        const topSeg = { x: river.x, y: river.y, width: river.width, height: bridge.y - river.y };
+        const botSeg = { x: river.x, y: bridge.y + bridge.height, width: river.width, height: (river.y + river.height) - (bridge.y + bridge.height) };
+        if (topSeg.height > 0) pushTankOutOfRect(tank, topSeg);
+        if (botSeg.height > 0) pushTankOutOfRect(tank, botSeg);
+      } else {
+        pushTankOutOfRect(tank, river);
+      }
     }
     for (const rock of map.rocks)   pushTankOutOfRect(tank, rock);
     if (map.bricks) {
@@ -2142,7 +2159,7 @@ export function checkPowerupPickups(state) {
       } else if (pu.type === 'airstrike') {
         state.hasAirstrike = true;
       } else if (pu.type === 'doubleshot') {
-        player.doubleShotTimer = 10; // 10 seconds
+        player.doubleShotTimer = player.dualGun ? 5 : 10; // 5s for heavy, 10s for standard
       } else if (pu.type === 'speedboost') {
         player.speedBoostTimer = 10; // 10 seconds
       } else if (pu.type === 'shield') {
@@ -2695,11 +2712,14 @@ export function renderTankSelect(ctx, state) {
   ctx.fillText('[1] STANDARD', leftX, 220);
   ctx.font = '18px monospace';
   ctx.fillStyle = '#cccccc';
-  ctx.fillText('Speed: ████████░░', leftX, 280);
-  ctx.fillText('Fire Rate: ████████░░', leftX, 310);
-  ctx.fillText('Rotation: ████████░░', leftX, 340);
+  ctx.fillText('Speed: ██████████', leftX, 280);
+  ctx.fillText('Fire Rate: ██████████', leftX, 310);
+  ctx.fillText('Rotation: ██████████', leftX, 340);
   ctx.fillText('Guns: Single', leftX, 370);
-  ctx.fillText('Size: Normal', leftX, 400);
+  ctx.fillText('Size: Normal (40)', leftX, 400);
+  ctx.fillStyle = '#888888';
+  ctx.font = '14px monospace';
+  ctx.fillText('150 px/s | 0.5s cd', leftX, 425);
 
   // Draw a mini tank preview
   ctx.save();
@@ -2782,11 +2802,11 @@ export function renderGameOver(ctx, state, canvas) {
 
   // Difficulty re-selection
   ctx.fillStyle = '#ffffff';
-  ctx.font = '20px sans-serif';
-  ctx.fillText('Change difficulty: [1] Easy  [2] Hard  [3] Crazy', mapW / 2, mapH / 2 + 120);
+  ctx.font = '18px sans-serif';
+  ctx.fillText('[0] Super Easy  [1] Easy  [2] Hard  [3] Crazy', mapW / 2, mapH / 2 + 120);
   ctx.fillStyle = '#ffdd00';
   ctx.font = '18px monospace';
-  const diffLabel = state.difficulty === 'easy' ? 'EASY' : state.difficulty === 'crazy' ? 'CRAZY' : 'HARD';
+  const diffLabel = state.difficulty === 'supereasy' ? 'SUPER EASY' : state.difficulty === 'easy' ? 'EASY' : state.difficulty === 'crazy' ? 'CRAZY' : 'HARD';
   ctx.fillText(`Current: ${diffLabel}`, mapW / 2, mapH / 2 + 150);
 }
 
@@ -2828,11 +2848,11 @@ export function renderVictory(ctx, state, canvas) {
 
   // Difficulty re-selection
   ctx.fillStyle = '#ffffff';
-  ctx.font = '20px sans-serif';
-  ctx.fillText('Change difficulty: [1] Easy  [2] Hard  [3] Crazy', mapW / 2, mapH / 2 + 155);
+  ctx.font = '18px sans-serif';
+  ctx.fillText('[0] Super Easy  [1] Easy  [2] Hard  [3] Crazy', mapW / 2, mapH / 2 + 155);
   ctx.fillStyle = '#ffdd00';
   ctx.font = '18px monospace';
-  const diffLabel = state.difficulty === 'easy' ? 'EASY' : state.difficulty === 'crazy' ? 'CRAZY' : 'HARD';
+  const diffLabel = state.difficulty === 'supereasy' ? 'SUPER EASY' : state.difficulty === 'easy' ? 'EASY' : state.difficulty === 'crazy' ? 'CRAZY' : 'HARD';
   ctx.fillText(`Current: ${diffLabel}`, mapW / 2, mapH / 2 + 180);
 }
 
